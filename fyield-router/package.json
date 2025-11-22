@@ -1,0 +1,23 @@
+{
+  "name": "fyield-router",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "hardhat test",
+    "compile": "hardhat compile",
+    "deploy:sepolia": "hardhat run scripts/deploySepolia.js --network sepolia",
+    "deploy:flare": "hardhat run scripts/deployFlare.js --network flare",
+    "deploy:coston2": "hardhat run scripts/deployFlare.js --network coston2",
+    "api": "node api/server.js"
+  },
+  "devDependencies": {
+    "@flarenetwork/flare-periphery-contracts": "^0.1.38",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@openzeppelin/contracts": "^4.9.6",
+    "dotenv": "^16.3.1",
+    "hardhat": "^2.19.0"
+  },
+  "dependencies": {
+    "ethers": "^6.9.0",
+    "express": "^4.18.2"
+  }
+}
