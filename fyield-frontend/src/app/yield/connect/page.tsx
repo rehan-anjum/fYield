@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import Link from 'next/link';
 
 export default function CardWithForm() {
   const { ready, authenticated, login, logout, user } = usePrivy();
@@ -34,9 +35,10 @@ export default function CardWithForm() {
   }
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center">
+    <div className="h-screen w-screen flex items-center justify-center bg-[#FFFCED]">
       <div className="flex flex-col items-center mb-20">
-        <h1 className="text-5xl font-bold tracking-tight mb-6 text-center">
+      <Link href="/" className="inline-block">
+        <h1 className="text-5xl font-bold tracking-tight mb-6 text-center cursor-pointer hover:opacity-80 transition">
           fYield
           <img
             src="https://i.imgur.com/PLrFoiD.png"
@@ -44,6 +46,8 @@ export default function CardWithForm() {
             className="inline-block w-6 h-6 align-super ml-1 mb-1"
           />
         </h1>
+      </Link>
+
 
         <Card className="w-[400px]">
           <CardHeader>
@@ -75,9 +79,9 @@ export default function CardWithForm() {
         <div className="absolute bottom-0 right-0 mb-4 mr-4 text-sm text-gray-500">
           <span><b>Powered</b> by
             <img
-                  src="https://cryptologos.cc/logos/flare-flr-logo.png"
+                  src="https://wp.logos-download.com/wp-content/uploads/2024/09/Flare_FLR_Logo_full.png"
                   alt="icon"
-                  className="inline-block w-4 h-4 ml-1 mb-1"
+                  className="inline-block w-12 h-4 ml-1 mb-1"
               />
           </span>
         </div>

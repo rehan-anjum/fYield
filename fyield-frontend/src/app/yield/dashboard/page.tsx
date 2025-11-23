@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 function shortenAddress(addr?: string) {
   if (!addr) return '';
@@ -44,6 +45,7 @@ const ERC20_ABI = [
 ];
 
 export default function Dashboard() {
+  const router = useRouter();
   const { wallets } = useWallets();
   const { logout } = usePrivy();
 
@@ -94,8 +96,13 @@ export default function Dashboard() {
   };
 
   const handleSignOut = async () => {
-    setIsOpen(false);
-    await logout();
+    try {
+      setIsOpen(false);
+      await logout();
+      router.push('/');
+    } catch (err) {
+      console.error('Error during sign out:', err);
+    }
   };
 
   // 🧪 Withdraw button stub for now
@@ -105,7 +112,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center relative bg-white">
+    <div className="h-screen w-screen flex items-center justify-center relative bg-[#FFFCED]">
       {/* 🔥 Top-right wallet pill */}
       <div className="absolute top-4 right-4 z-20">
         <div className="relative">
@@ -154,7 +161,8 @@ export default function Dashboard() {
 
       {/* Main content */}
       <div className="flex flex-col items-center w-full max-w-3xl px-4 gap-6">
-        <h1 className="text-5xl font-bold tracking-tight mb-2 text-center">
+      <Link href="/" className="inline-block">
+        <h1 className="text-5xl font-bold tracking-tight mb-6 text-center cursor-pointer hover:opacity-80 transition">
           fYield
           <img
             src="https://i.imgur.com/PLrFoiD.png"
@@ -162,6 +170,7 @@ export default function Dashboard() {
             className="inline-block w-6 h-6 align-super ml-1 mb-1"
           />
         </h1>
+      </Link>
 
         {/* Your Deposits */}
         <Card className="w-full overflow-hidden gap-2 relative">
@@ -265,10 +274,7 @@ export default function Dashboard() {
                 <div className="flex flex-col gap-1">
                   <p className="text-xs text-gray-500">Available FXRP</p>
                   <p className="text-lg font-semibold">
-                    {fxrpBalance != null
-                      ? fxrpBalance.toFixed(4)
-                      : '--'}{' '}
-                    FXRP
+                    {fxrpBalance != null ? fxrpBalance.toFixed(4) : '--'} FXRP
                   </p>
                 </div>
               </div>
@@ -305,10 +311,10 @@ export default function Dashboard() {
           <span>
             <b>Powered</b> by
             <img
-              src="https://cryptologos.cc/logos/flare-flr-logo.png"
-              alt="icon"
-              className="inline-block w-4 h-4 ml-1 mb-1"
-            />
+                  src="https://wp.logos-download.com/wp-content/uploads/2024/09/Flare_FLR_Logo_full.png"
+                  alt="icon"
+                  className="inline-block w-12 h-4 ml-1 mb-1"
+              />
           </span>
         </div>
       </div>

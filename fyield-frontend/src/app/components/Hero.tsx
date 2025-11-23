@@ -11,7 +11,7 @@ export default function Hero() {
   };
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-white text-black">
+    <div className="h-screen w-screen flex items-center justify-center bg-[#FFFCED] text-black">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
 
         <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight mb-8 text-black">

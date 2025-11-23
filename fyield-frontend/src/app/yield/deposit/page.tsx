@@ -13,6 +13,7 @@ import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { getXRPPrice } from "../../utils/price";
 import { ethers } from 'ethers';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 function shortenAddress(addr?: string) {
   if (!addr) return "";
@@ -77,6 +78,7 @@ const VAULT_ABI = [
 ];
 
 export default function vault() {
+    const router = useRouter();
   const { wallets } = useWallets();
 
   const [fxrpBalance, setFxrpBalance] = useState<number | null>(null);
@@ -256,12 +258,17 @@ export default function vault() {
   };
 
   const handleSignOut = async () => {
-    setIsOpen(false);
-    await logout();
+    try {
+      setIsOpen(false);
+      await logout();
+      router.push('/');
+    } catch (err) {
+      console.error('Error during sign out:', err);
+    }
   };
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center">
+    <div className="h-screen w-screen flex items-center justify-center bg-[#FFFCED]">
 
       {/* 🔥 Top-right wallet pill */}
       <div className="absolute top-4 right-4 z-20">
@@ -310,7 +317,8 @@ export default function vault() {
       </div>
 
       <div className="flex flex-col items-center">
-        <h1 className="text-5xl font-bold tracking-tight mb-6 text-center">
+      <Link href="/" className="inline-block">
+        <h1 className="text-5xl font-bold tracking-tight mb-6 text-center cursor-pointer hover:opacity-80 transition">
           fYield
           <img
             src="https://i.imgur.com/PLrFoiD.png"
@@ -318,6 +326,7 @@ export default function vault() {
             className="inline-block w-6 h-6 align-super ml-1 mb-1"
           />
         </h1>
+      </Link>
 
         <Card className="w-[420px] overflow-hidden gap-2 relative pb-0">
           <CardHeader className="z-10">
@@ -494,10 +503,10 @@ export default function vault() {
         <div className="absolute bottom-0 right-0 mb-4 mr-4 text-sm text-gray-500">
           <span><b>Powered</b> by 
             <img
-              src="https://cryptologos.cc/logos/flare-flr-logo.png"
-              alt="icon"
-              className="inline-block w-4 h-4 ml-1 mb-1"
-            />
+                  src="https://wp.logos-download.com/wp-content/uploads/2024/09/Flare_FLR_Logo_full.png"
+                  alt="icon"
+                  className="inline-block w-12 h-4 ml-1 mb-1"
+              />
           </span>
         </div>
       </div>
