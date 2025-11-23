@@ -3,9 +3,17 @@ const express = require('express');
 const { ethers } = require('ethers');
 const FlareVaultABI = require('../artifacts/contracts/FlareVault.sol/FlareVault.json').abi;
 const AAVEManagerABI = require('../artifacts/contracts/AAVEManager.sol/AAVEManager.json').abi;
+const cors = require('cors');
 
 const app = express();
 app.use(express.json());
+
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ],
+}));
 
 // Configuration
 const FLARE_RPC = process.env.FLARE_RPC_URL || 'https://coston2-api.flare.network/ext/C/rpc';
@@ -304,6 +312,7 @@ app.get('/global', async (req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 8000;
+
 app.listen(PORT, async () => {
     console.log(`\nAPI running on port ${PORT}`);
     

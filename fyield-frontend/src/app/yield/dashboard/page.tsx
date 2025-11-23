@@ -19,12 +19,15 @@ function shortenAddress(addr?: string) {
   return addr.slice(0, 6) + '...' + addr.slice(-4);
 }
 
-// 🔥 Coston2 RPC
+// 🔥 Coston2 RPC (for FXRP wallet balance)
 const COSTON2_RPC = 'https://coston2-api.flare.network/ext/C/rpc';
 const coston2Provider = new ethers.JsonRpcProvider(COSTON2_RPC);
 
 // FXRP token address on Coston2
 const FXRP_ADDRESS = '0x0b6A3645c240605887a5532109323A3E12273dc7';
+
+// FlareVault contract address (same as in your deposit page)
+const VAULT_CONTRACT_ADDRESS = '0x35E40975983E19781305e25552047679DF159d89';
 
 // Minimal ERC20 ABI for ethers (balanceOf, decimals)
 const ERC20_ABI = [
@@ -41,6 +44,25 @@ const ERC20_ABI = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint8' }],
+  },
+];
+
+// FlareVault ABI bits we need: getUserBalance + requestWithdraw
+// (deposit lives in the vault page already)
+const VAULT_ABI = [
+  {
+    name: 'getUserBalance',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'requestWithdraw',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'shares', type: 'uint256' }],
+    outputs: [],
   },
 ];
 
@@ -62,11 +84,17 @@ export default function Dashboard() {
   const [isOpen, setIsOpen] = useState(false);
 
   // 🔢 User stats from backend
-  const [vaultShares, setVaultShares] = useState<string | null>(null);
+  const [usdcLent, setUsdcLent] = useState<string | null>(null);
   const [vFxrpBalance, setVFxrpBalance] = useState<string | null>(null);
   const [earnedYield, setEarnedYield] = useState<string | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
+
+  // Withdraw UX state
+  const [withdrawStatus, setWithdrawStatus] = useState<
+    'idle' | 'pending' | 'success' | 'error'
+  >('idle');
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   // Load FXRP wallet balance
   useEffect(() => {
@@ -100,7 +128,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchStats = async () => {
       if (!address) {
-        setVaultShares(null);
+        setUsdcLent(null);
         setVFxrpBalance(null);
         setEarnedYield(null);
         return;
@@ -116,12 +144,12 @@ export default function Dashboard() {
         }
 
         const data: {
-          vaultShares: string;
+          usdcLent: string;
           vFxrpBalance: string;
           earnedYield: string;
         } = await res.json();
 
-        setVaultShares(data.vaultShares);
+        setUsdcLent(data.usdcLent);
         setVFxrpBalance(data.vFxrpBalance);
         setEarnedYield(data.earnedYield);
       } catch (err: any) {
@@ -149,17 +177,66 @@ export default function Dashboard() {
     }
   };
 
-  // 🧪 Withdraw button stub for now
-  const handleWithdraw = () => {
-    // TODO: add Privy + vault withdraw logic here
-    console.log('Withdraw clicked');
-  };
-
   const formatOrDash = (value: string | null, decimals: number) => {
     if (value == null || value === '') return '--';
     const num = Number(value);
     if (Number.isNaN(num)) return '--';
     return num.toFixed(decimals);
+  };
+
+  // 🧪 Withdraw all vFXRP (requestWithdraw)
+  const handleWithdraw = async () => {
+    const wallet = wallets[0];
+
+    if (!wallet || !address) {
+      setWithdrawError('Connect a wallet with Privy first.');
+      return;
+    }
+
+    if (!vFxrpBalance || vFxrpBalance === '' || Number(vFxrpBalance) <= 0) {
+      setWithdrawError('No vFXRP balance to withdraw.');
+      return;
+    }
+
+    if (!VAULT_CONTRACT_ADDRESS) {
+      setWithdrawError('Vault contract address not configured.');
+      return;
+    }
+
+    try {
+      setWithdrawError(null);
+      setWithdrawStatus('pending');
+
+      // vFXRP uses 6 decimals in your script
+      const withdrawAmount = ethers.parseUnits(vFxrpBalance, 6);
+      console.log('Withdrawing vFXRP:', vFxrpBalance, '→', withdrawAmount.toString());
+
+      // EIP-1193 provider (MetaMask via Privy) -> ethers v6 BrowserProvider -> signer
+      const eip1193 = await wallet.getEthereumProvider();
+      const ethersProvider = new ethers.BrowserProvider(eip1193);
+      const signer = await ethersProvider.getSigner();
+
+      const vaultWithSigner = new ethers.Contract(
+        VAULT_CONTRACT_ADDRESS,
+        VAULT_ABI,
+        signer
+      );
+
+      console.log('Requesting withdrawal...');
+      const withdrawTx = await vaultWithSigner.requestWithdraw(withdrawAmount);
+      await withdrawTx.wait();
+      console.log('Withdrawal request submitted!');
+
+      setWithdrawStatus('success');
+
+      // Optimistically zero out local vFXRP + vault shares
+      setVFxrpBalance('0');
+      setUsdcLent('0');
+    } catch (err) {
+      console.error('Withdraw transaction failed:', err);
+      setWithdrawStatus('error');
+      setWithdrawError('Withdrawal failed. Please try again.');
+    }
   };
 
   return (
@@ -263,7 +340,7 @@ export default function Dashboard() {
                   <p className="text-lg font-semibold">
                     {statsLoading
                       ? 'Loading...'
-                      : `${formatOrDash(vaultShares, 2)} USDC`}
+                      : `${formatOrDash(usdcLent, 2)} USDC`}
                   </p>
                   <p className="text-xs text-gray-500">
                     vFXRP: {formatOrDash(vFxrpBalance, 4)}
@@ -295,10 +372,19 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={handleWithdraw}
-                  className="mt-1 rounded-full px-4 py-1.5 text-xs font-medium text-black border hover:bg-gray-50 transition"
+                  disabled={withdrawStatus === 'pending'}
+                  className="mt-1 rounded-full px-4 py-1.5 text-xs font-medium text-black border hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Withdraw
+                  {withdrawStatus === 'idle' && 'Withdraw'}
+                  {withdrawStatus === 'pending' && 'Requesting withdraw...'}
+                  {withdrawStatus === 'success' && 'Withdraw requested ✅'}
+                  {withdrawStatus === 'error' && 'Retry withdraw'}
                 </button>
+                {withdrawError && (
+                  <p className="text-[10px] text-red-500 mt-1 text-right">
+                    {withdrawError}
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
