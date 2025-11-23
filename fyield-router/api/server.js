@@ -97,26 +97,67 @@ console.log('Operator:', flareWallet.address);
 async function watchFlareDeposits() {
     console.log('Watching deposits on Flare...');
     
-    flareVault.on('Deposit', async (user, fxrpAmount, timestamp, event) => {
+    // Listen to ERC4626 Deposit event: Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)
+    flareVault.on('Deposit', async (sender, owner, assets, shares, event) => {
         try {
-            console.log(`\nDeposit: ${user}`);
-            console.log(`  FXRP: ${ethers.formatUnits(fxrpAmount, 6)}`);
+            console.log(`\nDeposit detected: ${owner}`);
+            console.log(`  Sender: ${sender}`);
+            console.log(`  FXRP: ${ethers.formatUnits(assets, 6)}`);
+            console.log(`  vFXRP shares: ${ethers.formatUnits(shares, 6)}`);
             
             // Calculate USDC amount based on current XRP price
-            const usdcAmount = await fxrpToUSDC(fxrpAmount);
+            const usdcAmount = await fxrpToUSDC(assets);
             console.log(`  USDC to supply: ${ethers.formatUnits(usdcAmount, 6)}`);
             
-            // Store the USDC amount for this user (for withdrawal later)
-            const currentDeposit = userDeposits.get(user) || 0n;
-            userDeposits.set(user, currentDeposit + usdcAmount);
+            // Check USDC balance in manager contract
+            const managerUSDCBalance = await mainnetManager.getUSDCBalance();
+            console.log(`  Manager USDC balance: ${ethers.formatUnits(managerUSDCBalance, 6)}`);
             
-            console.log(`  Supplying to AAVE...`);
-            const tx = await mainnetManager.supplyToAAVE(user, usdcAmount, {
+            if (managerUSDCBalance < usdcAmount) {
+                console.error(`  Error: Insufficient USDC in manager. Need ${ethers.formatUnits(usdcAmount, 6)}, have ${ethers.formatUnits(managerUSDCBalance, 6)}`);
+                return;
+            }
+            
+            console.log(`  Depositing to AAVE vault...`);
+            console.log(`  Args: assets=${usdcAmount.toString()}, receiver=${owner}`);
+            console.log(`  Manager address: ${mainnetManager.target}`);
+            console.log(`  Operator address: ${mainnetWallet.address}`);
+            
+            // Check if deposit function exists
+            if (typeof mainnetManager.deposit !== 'function') {
+                console.error('  Error: deposit function not found on contract!');
+                return;
+            }
+            
+            const tx = await mainnetManager.deposit(usdcAmount, owner, {
                 gasLimit: 300000 // Set explicit gas limit for AAVE operations
             });
-            await tx.wait();
+            console.log(`  Transaction hash: ${tx.hash}`);
+            const receipt = await tx.wait();
+            console.log(`  Transaction confirmed in block ${receipt.blockNumber}`);
             
-            console.log(`  Supplied to AAVE: ${tx.hash}`);
+            // Find ERC4626 Deposit event to get shares minted
+            const depositEvent = receipt.logs.find(log => {
+                try {
+                    const parsed = mainnetManager.interface.parseLog(log);
+                    return parsed && parsed.name === 'Deposit' && parsed.args.shares !== undefined;
+                } catch {
+                    return false;
+                }
+            });
+            
+            let aaveShares = 0n;
+            if (depositEvent) {
+                const parsed = mainnetManager.interface.parseLog(depositEvent);
+                aaveShares = parsed.args.shares;
+                console.log(`  AAVE shares minted: ${ethers.formatUnits(aaveShares, 18)}`);
+            }
+            
+            // Store shares for this user (for withdrawal later)
+            const currentShares = userDeposits.get(owner) || 0n;
+            userDeposits.set(owner, currentShares + aaveShares);
+            
+            console.log(`  Deposited to AAVE: ${tx.hash}`);
         } catch (error) {
             console.error(`  Error:`, error.message);
             if (error.reason) {
@@ -135,36 +176,62 @@ async function watchWithdrawalRequests() {
             console.log(`\nWithdrawal: ${user}`);
             console.log(`  vFXRP: ${ethers.formatUnits(vFxrpAmount, 6)}`);
             
-            // Get the USDC amount that was originally deposited for this user
-            const usdcPrincipal = userDeposits.get(user) || 0n;
+            // Get the shares for this user
+            const userShares = userDeposits.get(user) || 0n;
             
-            if (usdcPrincipal === 0n) {
-                console.error(`  Error: No deposit record found for user ${user}`);
+            if (userShares === 0n) {
+                console.error(`  Error: No shares found for user ${user}`);
                 return;
             }
             
-            console.log(`  Original USDC deposited: ${ethers.formatUnits(usdcPrincipal, 6)}`);
+            console.log(`  User shares: ${ethers.formatUnits(userShares, 18)}`);
             
-            console.log(`  Withdrawing from AAVE...`);
-            const withdrawTx = await mainnetManager.withdrawFromAAVE(user, usdcPrincipal, {
+            // Check yield before withdrawal
+            const yieldAmount = await mainnetManager.getUserYield(user);
+            console.log(`  Accumulated yield: ${ethers.formatUnits(yieldAmount, 6)} USDC`);
+            
+            console.log(`  Redeeming from AAVE vault...`);
+            // Redeem shares but keep funds in manager contract (receiver = manager address)
+            const withdrawTx = await mainnetManager.redeem(userShares, mainnetManager.target, user, {
                 gasLimit: 400000 // Set explicit gas limit for AAVE withdrawal
             });
             const withdrawReceipt = await withdrawTx.wait();
             
+            // Find Withdraw event to get assets returned
             const withdrawEvent = withdrawReceipt.logs.find(log => {
                 try {
                     const parsed = mainnetManager.interface.parseLog(log);
-                    return parsed && parsed.name === 'USDCWithdrawn';
+                    return parsed && parsed.name === 'Withdraw';
                 } catch {
                     return false;
                 }
             });
             
-            let yieldAmount = 0;
+            let assetsReturned = 0n;
             if (withdrawEvent) {
                 const parsed = mainnetManager.interface.parseLog(withdrawEvent);
-                yieldAmount = parsed.args.yieldAmount;
-                console.log(`  Yield: ${ethers.formatUnits(yieldAmount, 6)} USDC (sent to user on Mainnet)`);
+                assetsReturned = parsed.args.assets;
+                console.log(`  Total returned: ${ethers.formatUnits(assetsReturned, 6)} USDC (principal + yield)`);
+                console.log(`  Yield earned: ${ethers.formatUnits(yieldAmount, 6)} USDC`);
+                
+                // If there's yield, send it to the user on mainnet
+                if (yieldAmount > 0n) {
+                    console.log(`  Sending ${ethers.formatUnits(yieldAmount, 6)} USDC yield to user...`);
+                    const usdc = new ethers.Contract(
+                        process.env.MAINNET_USDC,
+                        ['function transfer(address to, uint256 amount) returns (bool)'],
+                        mainnetWallet
+                    );
+                    
+                    // Transfer yield from manager to user
+                    const yieldTx = await mainnetManager.emergencyWithdrawUSDC(yieldAmount);
+                    await yieldTx.wait();
+                    
+                    // Now send from owner to user
+                    const transferTx = await usdc.transfer(user, yieldAmount);
+                    await transferTx.wait();
+                    console.log(`  ✅ Yield sent to user on mainnet`);
+                }
             }
             
             // Clear the deposit record for this user

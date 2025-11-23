@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
@@ -19,10 +21,10 @@ interface IAToken is IERC20 {
 
 /**
  * @title AAVEManager
- * @notice Contract deployed on Sepolia that manages USDC supply to AAVE
- * @dev Only callable by authorized operator (off-chain API). Tracks deposits and withdrawals.
+ * @notice ERC4626 vault that manages USDC supply to AAVE with proper yield distribution
+ * @dev Uses share-based accounting to ensure fair yield allocation based on deposit time
  */
-contract AAVEManager is Ownable, ReentrancyGuard {
+contract AAVEManager is ERC4626, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable USDC;
@@ -31,16 +33,16 @@ contract AAVEManager is Ownable, ReentrancyGuard {
     
     address public operator;
     
+    // Track original deposits for yield calculation
+    mapping(address => uint256) public userOriginalDeposit;
+    
     // Track total supplied and withdrawn for accounting
     uint256 public totalSupplied;
     uint256 public totalWithdrawn;
     
-    // Mapping of Flare user address => USDC amount supplied to AAVE for them
-    mapping(address => uint256) public userSupplied;
-    
     event OperatorUpdated(address indexed oldOperator, address indexed newOperator);
-    event USDCSupplied(address indexed flareUser, uint256 amount, uint256 timestamp);
-    event USDCWithdrawn(address indexed flareUser, uint256 amount, uint256 yieldAmount);
+    event USDCSupplied(address indexed user, uint256 amount, uint256 shares, uint256 timestamp);
+    event USDCWithdrawn(address indexed user, uint256 amount, uint256 shares, uint256 yieldAmount);
     event YieldHarvested(uint256 amount);
 
     constructor(
@@ -48,7 +50,7 @@ contract AAVEManager is Ownable, ReentrancyGuard {
         address _aavePool,
         address _aUSDC,
         address _operator
-    ) {
+    ) ERC20("AAVE USDC Vault", "aavUSDC") ERC4626(IERC20(_usdc)) {
         require(_usdc != address(0), "Invalid USDC address");
         require(_aavePool != address(0), "Invalid AAVE pool");
         require(_aUSDC != address(0), "Invalid aUSDC address");
@@ -60,7 +62,7 @@ contract AAVEManager is Ownable, ReentrancyGuard {
         operator = _operator;
         
         // Approve AAVE pool to spend USDC (max approval)
-        USDC.safeApprove(_aavePool, type(uint256).max);
+        IERC20(_usdc).safeApprove(_aavePool, type(uint256).max);
     }
 
     modifier onlyOperator() {
@@ -69,71 +71,113 @@ contract AAVEManager is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @notice Operator supplies USDC to AAVE on behalf of a Flare user
-     * @dev Expects USDC to already be in this contract
-     * @param flareUser The user's address on Flare network (for tracking)
-     * @param amount Amount of USDC to supply
+     * @notice Override totalAssets to return aUSDC balance (principal + yield in AAVE)
      */
-    function supplyToAAVE(address flareUser, uint256 amount) external onlyOperator nonReentrant {
-        require(amount > 0, "Zero amount");
-        require(flareUser != address(0), "Invalid user address");
-        require(USDC.balanceOf(address(this)) >= amount, "Insufficient USDC in contract");
+    function totalAssets() public view override returns (uint256) {
+        return aUSDC.balanceOf(address(this));
+    }
+
+    /**
+     * @notice Deposit USDC and receive vault shares
+     * @param assets Amount of USDC to deposit
+     * @param receiver Address to receive vault shares
+     * @return shares Amount of vault shares minted
+     */
+    function deposit(uint256 assets, address receiver) public override onlyOperator nonReentrant returns (uint256 shares) {
+        require(assets > 0, "Zero amount");
+        require(receiver != address(0), "Invalid receiver");
+        require(USDC.balanceOf(address(this)) >= assets, "Insufficient USDC in contract");
+        
+        // Calculate shares based on current vault value
+        shares = previewDeposit(assets);
+        
+        // Track original deposit for yield calculation
+        userOriginalDeposit[receiver] += assets;
+        totalSupplied += assets;
         
         // Supply USDC to AAVE
-        aavePool.supply(address(USDC), amount, address(this), 0);
+        aavePool.supply(address(USDC), assets, address(this), 0);
         
-        // Track the supply
-        userSupplied[flareUser] += amount;
-        totalSupplied += amount;
+        // Mint vault shares to receiver
+        _mint(receiver, shares);
         
-        emit USDCSupplied(flareUser, amount, block.timestamp);
+        emit USDCSupplied(receiver, assets, shares, block.timestamp);
+        emit Deposit(msg.sender, receiver, assets, shares);
+        
+        return shares;
     }
 
     /**
-     * @notice Operator withdraws from AAVE for a user (principal + yield) and sends USDC to user
-     * @param flareUser The user's address (same on both Flare and Sepolia)
-     * @param principalAmount The original principal amount supplied for this user
-     * @return totalAmount Total amount withdrawn (principal + yield)
-     * @return yieldAmount Yield earned
+     * @notice Redeem vault shares for USDC (principal + yield)
+     * @param shares Amount of vault shares to redeem
+     * @param receiver Address to receive USDC
+     * @param owner Address that owns the shares
+     * @return assets Amount of USDC returned
      */
-    function withdrawFromAAVE(
-        address flareUser,
-        uint256 principalAmount
-    ) external onlyOperator nonReentrant returns (uint256 totalAmount, uint256 yieldAmount) {
-        require(principalAmount > 0, "Zero amount");
-        require(userSupplied[flareUser] >= principalAmount, "Insufficient user supply");
+    function redeem(uint256 shares, address receiver, address owner) public override onlyOperator nonReentrant returns (uint256 assets) {
+        require(shares > 0, "Zero shares");
+        require(receiver != address(0), "Invalid receiver");
         
-        // Calculate user's proportional share of total yield
-        uint256 currentAAVEBalance = aUSDC.balanceOf(address(this));
-        uint256 totalYield = currentAAVEBalance > totalSupplied ? currentAAVEBalance - totalSupplied : 0;
+        // Calculate USDC value of shares (includes yield)
+        assets = previewRedeem(shares);
         
-        // User's yield = (user's principal / total supplied) * total yield
-        uint256 userYield = 0;
-        if (totalSupplied > 0 && totalYield > 0) {
-            userYield = (principalAmount * totalYield) / totalSupplied;
-        }
-        
-        // Withdraw principal + yield from AAVE
-        uint256 withdrawAmount = principalAmount + userYield;
-        uint256 withdrawn = aavePool.withdraw(address(USDC), withdrawAmount, address(this));
+        // Calculate yield
+        uint256 userShares = balanceOf(owner);
+        uint256 originalDeposit = userOriginalDeposit[owner];
+        uint256 proportionalOriginal = (originalDeposit * shares) / userShares;
+        uint256 yieldAmount = assets > proportionalOriginal ? assets - proportionalOriginal : 0;
         
         // Update tracking
-        userSupplied[flareUser] -= principalAmount;
-        totalSupplied -= principalAmount;
-        totalWithdrawn += withdrawn;
+        userOriginalDeposit[owner] -= proportionalOriginal;
+        totalSupplied -= proportionalOriginal;
+        totalWithdrawn += assets;
         
-        // Send USDC directly to user on Sepolia (principal is kept, only yield sent)
-        if (userYield > 0) {
-            USDC.safeTransfer(flareUser, userYield);
-        }
+        // Burn shares
+        _burn(owner, shares);
         
-        emit USDCWithdrawn(flareUser, principalAmount, userYield);
+        // Withdraw from AAVE
+        aavePool.withdraw(address(USDC), assets, address(this));
         
-        return (withdrawn, userYield);
+        // Send USDC to receiver
+        USDC.safeTransfer(receiver, assets);
+        
+        emit USDCWithdrawn(owner, assets, shares, yieldAmount);
+        emit Withdraw(msg.sender, receiver, owner, assets, shares);
+        
+        return assets;
     }
 
     /**
-     * @notice Get current yield earned across all users
+     * @notice Get user's accumulated yield so far
+     * @param user User's address
+     * @return yieldAmount Yield earned (USDC)
+     */
+    function getUserYield(address user) external view returns (uint256 yieldAmount) {
+        uint256 userShares = balanceOf(user);
+        if (userShares == 0) return 0;
+        
+        // Current value of their shares (principal + yield)
+        uint256 currentValue = convertToAssets(userShares);
+        
+        // Original deposit amount
+        uint256 originalDeposit = userOriginalDeposit[user];
+        
+        // Yield = current value - original deposit
+        return currentValue > originalDeposit ? currentValue - originalDeposit : 0;
+    }
+
+    /**
+     * @notice Get current value of user's position (principal + yield)
+     * @param user User's address
+     * @return value Current USDC value
+     */
+    function getUserValue(address user) external view returns (uint256 value) {
+        uint256 userShares = balanceOf(user);
+        return convertToAssets(userShares);
+    }
+
+    /**
+     * @notice Get total yield earned across all users
      */
     function getTotalYieldEarned() external view returns (uint256) {
         uint256 currentAAVEBalance = aUSDC.balanceOf(address(this));
@@ -141,20 +185,6 @@ contract AAVEManager is Ownable, ReentrancyGuard {
             return currentAAVEBalance - totalSupplied;
         }
         return 0;
-    }
-
-    /**
-     * @notice Get yield earned for a specific user
-     * @param flareUser User's Flare address
-     */
-    function getUserYield(address flareUser) external view returns (uint256) {
-        uint256 userPrincipal = userSupplied[flareUser];
-        if (userPrincipal == 0 || totalSupplied == 0) return 0;
-        
-        uint256 currentAAVEBalance = aUSDC.balanceOf(address(this));
-        uint256 totalYield = currentAAVEBalance > totalSupplied ? currentAAVEBalance - totalSupplied : 0;
-        
-        return (userPrincipal * totalYield) / totalSupplied;
     }
 
     /**

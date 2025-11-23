@@ -52,7 +52,8 @@ async function main() {
     await approveTx.wait();
 
     console.log("Depositing FXRP...");
-    const depositTx = await vaultWithSigner.deposit(depositAmount);
+    // ERC4626 deposit requires (assets, receiver)
+    const depositTx = await vaultWithSigner.deposit(depositAmount, user.address);
     const receipt = await depositTx.wait();
 
     const vFxrpAfter = await vault.getUserBalance(user.address);
