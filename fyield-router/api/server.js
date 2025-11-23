@@ -271,12 +271,12 @@ app.get('/user/:address', async (req, res) => {
     try {
         const { address } = req.params;
         
-        const vaultShares = await mainnetManager.balanceOf(address); // #1: AAVEManager vault shares
+        const userOriginalDeposit = await mainnetManager.userOriginalDeposit(address); // #1: Original USDC deposited
         const vFxrpBalance = await flareVault.balanceOf(address); // #2: vFXRP balance
         const userYield = await mainnetManager.getUserYield(address); // #3: Earned yield
         
         res.json({
-            vaultShares: ethers.formatUnits(vaultShares, 18), // aavUSDC shares (18 decimals)
+            usdcLent: ethers.formatUnits(userOriginalDeposit, 6), // USDC lent to AAVE (6 decimals)
             vFxrpBalance: ethers.formatUnits(vFxrpBalance, 6), // vFXRP balance (6 decimals)
             earnedYield: ethers.formatUnits(userYield, 6) // USDC (6 decimals)
         });
