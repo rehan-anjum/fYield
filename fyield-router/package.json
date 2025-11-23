@@ -1,6 +1,7 @@
 {
   "name": "fyield-router",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "test": "hardhat test",
     "compile": "hardhat compile",
@@ -11,10 +12,9 @@
   },
   "devDependencies": {
     "@flarenetwork/flare-periphery-contracts": "^0.1.38",
-    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
     "@openzeppelin/contracts": "^4.9.6",
     "dotenv": "^16.3.1",
-    "hardhat": "^2.19.0"
+    "hardhat": "^3.0.15"
   },
   "dependencies": {
     "cors": "^2.8.5",
