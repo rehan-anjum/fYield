@@ -17,6 +17,24 @@ fYield consists of three components:
 FlareVault (Flare)  <— events —>  Coordinator (Node.js)  <— transactions —>  AAVEManager (Ethereum)
 ```
 
+---
+
+## **📷 Preview**
+
+<table>
+  <tr>
+    <td><img width="100%" src="https://github.com/user-attachments/assets/fe0f97dc-7cb3-4d57-ab6d-9d6825533b8e" /></td>
+    <td><img width="100%" src="https://github.com/user-attachments/assets/3214bbab-6713-459a-b4f5-56a5a0485b76" /></td>
+  </tr>
+  <tr>
+    <td><img width="100%" src="https://github.com/user-attachments/assets/53cc550c-3b75-44a0-967b-3ae755ce0157" /></td>
+    <td><img width="100%" src="https://github.com/user-attachments/assets/7a07bae5-a289-408f-a176-dafcab2801ad" /></td>
+  </tr>
+</table>
+
+---
+
+
 ### **FlareVault (Flare Network)**
 
 Location: `fyield-router/contracts/FlareVault.sol`
