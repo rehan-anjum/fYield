@@ -20,15 +20,14 @@ FlareVault (Flare)  <— events —>  Coordinator (Node.js)  <— transactions �
 ---
 
 ## **📷 Preview**
-
 <table>
   <tr>
-    <td><img width="100%" src="https://github.com/user-attachments/assets/fe0f97dc-7cb3-4d57-ab6d-9d6825533b8e" /></td>
-    <td><img width="100%" src="https://github.com/user-attachments/assets/3214bbab-6713-459a-b4f5-56a5a0485b76" /></td>
+    <td><img width="100%" src="https://github.com/user-attachments/assets/1d1cc3ac-ea02-42d0-a567-6b09c3e3509c" /></td>
+    <td><img width="100%" src="https://github.com/user-attachments/assets/bb57c6ce-d67f-4b7c-9266-4d2f6734ed49" /></td>
   </tr>
   <tr>
-    <td><img width="100%" src="https://github.com/user-attachments/assets/53cc550c-3b75-44a0-967b-3ae755ce0157" /></td>
-    <td><img width="100%" src="https://github.com/user-attachments/assets/7a07bae5-a289-408f-a176-dafcab2801ad" /></td>
+    <td><img width="100%" src="https://github.com/user-attachments/assets/744203f3-7113-414f-a3f5-c884429148bd" /></td>
+    <td><img width="100%" src="https://github.com/user-attachments/assets/62fd1005-1a65-4f18-a059-d03700d003e8" /></td>
   </tr>
 </table>
 
